@@ -2,7 +2,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'activity_screen.dart';
 import 'main_navigation.dart';
 
 class DashboardScreen extends StatefulWidget {
