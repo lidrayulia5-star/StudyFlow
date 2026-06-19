@@ -1,0 +1,355 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'edit_activity_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late Stream<QuerySnapshot> _activitiesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _activitiesStream = FirebaseFirestore.instance
+        .collection('activities')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  bool _cekApakahTerlambat(String deadlineStr, String statusStr) {
+    if (statusStr.toLowerCase() == 'selesai') return false;
+    try {
+      final parts = deadlineStr.split('/');
+      if (parts.length == 3) {
+        final dateDeadline = DateTime(
+          int.parse(parts[2]),
+          int.parse(parts[1]),
+          int.parse(parts[0]),
+        );
+        final sekarang = DateTime.now();
+        final hariIni = DateTime(sekarang.year, sekarang.month, sekarang.day);
+        return dateDeadline.isBefore(hariIni);
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        title: Row(
+          children: [
+            Icon(
+              Icons.school,
+              color: Colors.indigo.shade700,
+              size: 28,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              "StudyFlow",
+              style: TextStyle(
+                color: Colors.indigo.shade900,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
+                fontSize: 22,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _activitiesStream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const Center(
+              child: Text("Terjadi Kesalahan"),
+            );
+          }
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.indigo),
+            );
+          }
+
+          final data = snapshot.data!.docs;
+
+          if (data.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.folder_open_rounded, size: 48, color: Colors.grey.shade400),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Belum ada aktivitas",
+                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            itemCount: data.length,
+            itemBuilder: (context, index) {
+              var activity = data[index];
+              String statusStr = (activity['status'] ?? '').toString().toLowerCase();
+              String deadlineStr = (activity['deadline'] ?? '-').toString();
+
+              bool lewatDeadline = _cekApakahTerlambat(deadlineStr, statusStr);
+
+              Color warna = Colors.blue;
+              if (statusStr == "selesai") {
+                warna = Colors.green;
+              } else if (statusStr == "revisi") {
+                warna = Colors.orange;
+              } else if (statusStr == "belum dimulai") {
+                warna = Colors.grey.shade600;
+              } else if (statusStr == "sedang dikerjakan") {
+                warna = Colors.blue;
+              } else if (statusStr == "gagal" || statusStr == "terlambat") {
+                warna = Colors.red;
+              }
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.02),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: lewatDeadline ? Colors.red.shade300 : Colors.grey.shade200,
+                    width: lewatDeadline ? 1.5 : 1.0,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: lewatDeadline ? Colors.red.shade50 : Colors.indigo.shade50,
+                            child: Icon(
+                              Icons.assignment_outlined,
+                              color: lewatDeadline ? Colors.red.shade700 : Colors.indigo,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  activity['judul'] ?? 'Tanpa Judul',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  activity['mataKuliah'] ?? '',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, color: Colors.grey),
+                            onSelected: (value) async {
+                              if (value == "edit") {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => EditActivityScreen(
+                                      docId: activity.id,
+                                      judul: activity['judul'] ?? '',
+                                      mataKuliah: activity['mataKuliah'] ?? '',
+                                      kategori: activity['kategori'] ?? '',
+                                      status: activity['status'] ?? '',
+                                      deadline: activity['deadline'] ?? '',
+                                      catatan: activity['catatan'] ?? '',
+                                    ),
+                                  ),
+                                );
+                              } else if (value == "hapus") {
+                                bool? konfirmasi = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) {
+                                    return AlertDialog(
+                                      title: const Text("Hapus Aktivitas"),
+                                      content: const Text("Yakin ingin menghapus aktivitas ini?"),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context, false),
+                                          child: const Text("Batal"),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context, true),
+                                          child: const Text("Hapus"),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+
+                                if (konfirmasi == true) {
+                                  await FirebaseFirestore.instance
+                                      .collection('activities')
+                                      .doc(activity.id)
+                                      .delete();
+                                }
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: "edit",
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit_outlined, size: 20, color: Colors.grey),
+                                    SizedBox(width: 10),
+                                    Text("Edit"),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: "hapus",
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                                    SizedBox(width: 10),
+                                    Text(
+                                      "Hapus",
+                                      style: TextStyle(color: Colors.red),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.indigo.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.layers_outlined, size: 14, color: Colors.indigo),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      activity['kategori'] ?? 'Umum',
+                                      style: const TextStyle(fontSize: 11, color: Colors.indigo, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: lewatDeadline ? Colors.red.shade700 : Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.alarm, size: 14, color: lewatDeadline ? Colors.white : Colors.red),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      deadlineStr,
+                                      style: TextStyle(
+                                        fontSize: 11, 
+                                        color: lewatDeadline ? Colors.white : Colors.red, 
+                                        fontWeight: FontWeight.bold
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: warna.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              activity['status'] ?? 'Belum Dimulai',
+                              style: TextStyle(
+                                color: warna,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (activity['catatan'] != null &&
+                          activity['catatan'].toString().trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        const Divider(height: 1, thickness: 0.5),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: Text(
+                            activity['catatan'],
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontSize: 13,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
